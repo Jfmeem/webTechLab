@@ -6,6 +6,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from fastapi.security import OAuth2PasswordBearer, OAuth2PasswordRequestForm
 from jose import JWTError, jwt
 from passlib.context import CryptContext
+from passlib.exc import PasswordSizeError, PasswordValueError
+from pydantic import BaseModel, Field
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -13,7 +16,7 @@ from models import User
 
 
 router = APIRouter()
-bcrypt_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+bcrypt_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__truncate_error=True)
 oauth2_bearer = OAuth2PasswordBearer(tokenUrl="login")
 db_dependency = Annotated[Session, Depends(get_db)]
 ALGORITHM = "HS256"
@@ -21,7 +24,16 @@ ALGORITHM = "HS256"
 secret_key = os.environ["JWT_SECRET_KEY"]
 
 
+class CreateUser(BaseModel):
+    username: str = Field(min_length=1)
+    password: str = Field(min_length=1)
+    role: str = "customer"
+
+
 def authenticate_user(username, password, db):
+    if len(password.encode("utf-8")) > 72 or "\x00" in password:
+        return None
+
     user = db.query(User).filter(User.username == username).first()
     if user is not None and bcrypt_context.verify(password, user.hash_password):
         return user
@@ -51,6 +63,28 @@ def get_current_user(token: Annotated[str, Depends(oauth2_bearer)]):
         raise HTTPException(status_code=401, detail="Invalid token")
 
     return {"username": username, "user_id": user_id, "role": role}
+
+
+@router.post("/users", status_code=201)
+def create_user(db: db_dependency, new_user: CreateUser):
+    if new_user.role not in ("customer", "provider"):
+        raise HTTPException(status_code=422, detail="Role must be customer or provider")
+
+    try:
+        model_user = User(
+            username=new_user.username,
+            hash_password=bcrypt_context.hash(new_user.password),
+            role=new_user.role,
+        )
+        db.add(model_user)
+        db.commit()
+    except (PasswordSizeError, PasswordValueError):
+        raise HTTPException(status_code=422, detail="Password is too long or contains an unsupported character")
+    except IntegrityError:
+        db.rollback()
+        raise HTTPException(status_code=409, detail="Username already exists")
+
+    return {"id": model_user.id, "username": model_user.username, "role": model_user.role}
 
 
 @router.post("/login")
