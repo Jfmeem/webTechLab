@@ -3,13 +3,12 @@ import os
 from sqlalchemy import create_engine
 from sqlalchemy.orm import declarative_base, sessionmaker
 
+DATABASE_URL = os.environ["DATABASE_URL"]
 
-database_url = os.getenv("DATABASE_URL")
-if not database_url:
-    raise RuntimeError("Set DATABASE_URL to the SkillSwap PostgreSQL connection URL.")
+engine = create_engine(DATABASE_URL)
 
-engine = create_engine(database_url)
-SessionLocal = sessionmaker(bind=engine, autoflush=False)
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+
 Base = declarative_base()
 
 

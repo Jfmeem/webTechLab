@@ -5,9 +5,11 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from models import ServiceListing
+from router import auth
 
 
 app = FastAPI(title="SkillSwap")
+app.include_router(auth.router)
 db_dependency = Annotated[Session, Depends(get_db)]
 
 
