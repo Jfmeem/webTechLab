@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from models import ServiceListing, User
 from router import auth
-from schemas import ListingCreate
+from schemas import ListingCreate, ListingUpdate
 
 
 app = FastAPI(title="SkillSwap")
@@ -38,3 +38,30 @@ def create_listing(user: user_dependency, db: db_dependency, new_listing: Listin
     db.add(listing)
     db.commit()
     return {"id": listing.id, "message": "Listing created successfully"}
+
+
+@app.patch("/listings/{listing_id}")
+def update_listing(user: user_dependency, db: db_dependency, listing_id: int, updated_listing: ListingUpdate):
+    listing = read_listing(db, listing_id)
+    if listing.provider_id != user["user_id"]:
+        raise HTTPException(status_code=403, detail="You can only update your own listings")
+
+    update_data = updated_listing.model_dump(exclude_unset=True)
+    if None in update_data.values():
+        raise HTTPException(status_code=422, detail="Listing fields cannot be null")
+
+    for key, value in update_data.items():
+        setattr(listing, key, value)
+
+    db.commit()
+    return {"message": "Listing updated successfully"}
+
+
+@app.delete("/listings/{listing_id}", status_code=204)
+def delete_listing(user: user_dependency, db: db_dependency, listing_id: int):
+    listing = read_listing(db, listing_id)
+    if listing.provider_id != user["user_id"]:
+        raise HTTPException(status_code=403, detail="You can only delete your own listings")
+
+    db.delete(listing)
+    db.commit()
